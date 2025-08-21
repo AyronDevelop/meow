@@ -3,6 +3,7 @@ import admin from "firebase-admin";
 import { Storage } from "@google-cloud/storage";
 import { LlmClient } from "./llm.js";
 import { parseGcsUri } from "./util.js";
+import { renderPdfPages } from "./rendererClient.js";
 
 function ensureAdmin() {
   try {
@@ -47,7 +48,25 @@ export const jobsWorker = functions
         .split(/\n\s*\n/g)
         .slice(0, 50)
         .map((t: string, i: number) => ({ index: i + 1, text: t.slice(0, 5000) }));
+
+      // Call Cloud Run renderer to get page PNGs (if configured)
+      const rendererUrl = process.env.RENDERER_URL || (functions.config()?.renderer?.url as string | undefined);
       const images: Array<{ page: number; url: string }> = [];
+      try {
+        if (rendererUrl) {
+          const r = await renderPdfPages(rendererUrl, { gcsPath: data.gcsPath, dpi: 180, maxPages: 150, jobId: data.jobId });
+          // Generate signed URLs for returned gcsObject paths
+          for (const pg of r.pages.slice(0, 12)) {
+            const [signed] = await storage
+              .bucket(process.env.GCS_BUCKET_JOBS || "")
+              .file(pg.gcsObject)
+              .getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 2 * 60 * 60 * 1000 });
+            images.push({ page: pg.index, url: signed });
+          }
+        }
+      } catch (e) {
+        // renderer is optional; continue without images
+      }
 
       const openaiDisabled = String(process.env.OPENAI_DISABLED || "false").toLowerCase() === "true";
       let slides: any;

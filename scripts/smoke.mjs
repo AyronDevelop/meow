@@ -114,6 +114,17 @@ async function main ()
         if (data.status === "done" || data.status === "error" || data.status === "cancelled")
         {
             console.log("final:", data);
+            if (data.status === "done")
+            {
+                try
+                {
+                    const r = await fetch(data.result.resultJsonUrl);
+                    const txt = await r.text();
+                    let js; try { js = JSON.parse(txt); } catch { js = {}; }
+                    const imagesCount = Array.isArray(js.slides) ? js.slides.reduce((n, sl) => n + (Array.isArray(sl.images) ? sl.images.length : 0), 0) : 0;
+                    console.log("images_in_result:", imagesCount);
+                } catch { }
+            }
             process.exit(0);
         }
         await new Promise((r) => setTimeout(r, 4000));

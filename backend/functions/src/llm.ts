@@ -31,6 +31,13 @@ export class LlmClient {
     this.client = new OpenAI({ apiKey });
   }
 
+  private dbg(label: string, payload: unknown) {
+    if (process.env.DEBUG_LLM === "true") {
+      // eslint-disable-next-line no-console
+      console.log(`[LLM] ${label}`, typeof payload === "string" ? payload : JSON.stringify(payload).slice(0, 1000));
+    }
+  }
+
   private getJsonSchemaObject() {
     // Hand-written JSON Schema matching SlidesResultSchema
     return {
@@ -80,16 +87,25 @@ export class LlmClient {
     language?: string;
     theme?: "DEFAULT" | "LIGHT" | "DARK";
   }): Promise<SlidesResult> {
-    const system = "You convert PDF text into a slide deck JSON strictly matching the provided JSON Schema. Output JSON only.";
+    const system = [
+      "You convert PDF text into a slide deck JSON strictly matching the provided JSON Schema.",
+      "Rules:",
+      "- Output JSON only.",
+      "- Use ONLY URLs from allowedImageUrls. External URLs are forbidden.",
+      "- Include at least minImages images in the deck. If you judge none appropriate, then use page 1 as BACKGROUND on the title slide; optionally page 2 as RIGHT on the next slide.",
+    ].join(" ");
     const inputPayload = {
       constraints: {
         maxSlides: params.maxSlides ?? 30,
         language: params.language ?? "auto",
         theme: params.theme ?? "DEFAULT",
       },
-      document: {
-        pages: params.pages,
-        images: params.images,
+      document: { pages: params.pages, images: params.images },
+      allowedImageUrls: params.images.map((i) => i.url),
+      minImages: 1,
+      imagePlacementGuidance: {
+        titleBackgroundFromPage1: true,
+        secondaryRightFromPage2: true
       },
       guidelines: [
         "Short headings, concise bullets",
@@ -103,6 +119,12 @@ export class LlmClient {
     // Attempt 1: strict JSON Schema response_format
     let content = "{}";
     try {
+      this.dbg("attempt1.input", {
+        pages: params.pages.length,
+        images: params.images.length,
+        allowedImageUrls: inputPayload.allowedImageUrls.length,
+        minImages: inputPayload.minImages,
+      });
       const completion = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_schema", json_schema: { name: "SlidesResult", schema: jsonSchema, strict: true } as any },
@@ -114,18 +136,24 @@ export class LlmClient {
         max_tokens: 6000,
       });
       content = completion.choices[0]?.message?.content || "{}";
+      this.dbg("attempt1.raw", String(content).slice(0, 1000));
       const parsed1 = SlidesResultSchema.safeParse(JSON.parse(content));
-      if (parsed1.success) return parsed1.data;
+      if (parsed1.success) {
+        const urls = (parsed1.data.slides || []).flatMap((s) => s.images || []).map((im) => im.url);
+        this.dbg("attempt1.parsed", { slides: parsed1.data.slides.length, images: urls.length });
+        return parsed1.data;
+      }
     } catch {
       // fallthrough to repair
     }
 
-    // Attempt 2: repair prompt with explicit schema and previous output
+    // Attempt 2: repair prompt with explicit schema and previous output + whitelist enforcement
     const repairPrompt = {
       instruction:
-        "Your previous output did not validate against the schema. Return a single JSON object that validates strictly against the schema below. Do not include any prose.",
+        "Your previous output did not validate. Return a single JSON object that validates strictly. IMPORTANT: All images[].url MUST be chosen only from allowedImageUrls; external URLs are forbidden.",
       schema: jsonSchema,
       previous: content,
+      allowedImageUrls: inputPayload.allowedImageUrls,
     };
     const completion2 = await this.client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -138,8 +166,13 @@ export class LlmClient {
       max_tokens: 6000,
     });
     const content2 = completion2.choices[0]?.message?.content || "{}";
+    this.dbg("attempt2.raw", String(content2).slice(0, 1000));
     const parsed2 = SlidesResultSchema.safeParse(JSON.parse(content2));
-    if (parsed2.success) return parsed2.data;
+    if (parsed2.success) {
+      const all = (parsed2.data.slides || []).flatMap((s) => s.images || []).map((im) => im.url);
+      this.dbg("attempt2.parsed", { slides: parsed2.data.slides.length, images: all.length });
+      return parsed2.data;
+    }
 
     throw new Error("LLM response did not match schema after repair");
   }

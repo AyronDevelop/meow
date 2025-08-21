@@ -1,5 +1,7 @@
+import "dotenv/config";
 import * as functions from "firebase-functions";
 import { createApp } from "./app.js";
+export { jobsWorker } from "./worker.js";
 
 const app = createApp();
 

@@ -16,8 +16,12 @@ export const config: ServiceConfig = {
   region: process.env.REGION || "us-central1",
   projectId: process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "",
   buckets: {
-    uploads: process.env.GCS_BUCKET_UPLOADS || "",
-    jobs: process.env.GCS_BUCKET_JOBS || "",
+    uploads:
+      process.env.GCS_BUCKET_UPLOADS ||
+      ((process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT) ? `${process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT}-slides-uploads` : ""),
+    jobs:
+      process.env.GCS_BUCKET_JOBS ||
+      ((process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT) ? `${process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT}-slides-jobs` : ""),
   },
   limits: {
     maxPdfBytes: Number(process.env.PDF_MAX_BYTES || 31457280),

@@ -1,6 +1,12 @@
 {
   "functions": {
     "source": "backend/functions"
+  },
+  "emulators": {
+    "functions": { "host": "127.0.0.1", "port": 5001 },
+    "firestore": { "host": "127.0.0.1", "port": 8080 },
+    "pubsub": { "host": "127.0.0.1", "port": 8086 },
+    "ui": { "enabled": true, "host": "127.0.0.1", "port": 4000 }
   }
 }
 

@@ -26,7 +26,7 @@ describe("POST /v1/uploads/signed-url", () => {
   const secret = "test-secret";
   const prevEnv = process.env;
   beforeEach(() => {
-    process.env = { ...prevEnv, ADDON_SHARED_SECRET: secret, GCS_BUCKET_UPLOADS: "bucket", SIGNED_URL_TTL_SECONDS: "3600", PDF_MAX_BYTES: "31457280", PDF_MAX_PAGES: "150" };
+    process.env = { ...prevEnv, ADDON_SHARED_SECRET: secret, GCS_BUCKET_UPLOADS: "bucket", SIGNED_URL_TTL_SECONDS: "3600", PDF_MAX_BYTES: "31457280", PDF_MAX_PAGES: "150", ANTI_REPLAY_ENABLED: "false" };
   });
   afterEach(() => {
     process.env = prevEnv;

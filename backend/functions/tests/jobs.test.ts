@@ -58,6 +58,7 @@ describe("jobs endpoints", () => {
       SIGNED_URL_TTL_SECONDS: "3600",
       PDF_MAX_BYTES: "31457280",
       PDF_MAX_PAGES: "150",
+      ANTI_REPLAY_ENABLED: "false",
     };
   });
   afterEach(() => {

@@ -8,11 +8,13 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ab, bb);
 }
 
-export function hmacAuth(secretProvider: () => string) {
+export function hmacAuth(secretProvider: (keyId?: string) => string) {
   return function (req: Request, res: Response, next: NextFunction) {
     try {
       const tsHeader = req.header("X-Timestamp");
       const signature = req.header("X-Signature") || "";
+      const keyId = req.header("X-Key-Id") || undefined;
+      const nonce = req.header("X-Nonce");
       const now = Date.now();
       const ts = Number(tsHeader || 0);
       if (!ts || Math.abs(now - ts) > 5 * 60 * 1000) {
@@ -24,12 +26,20 @@ export function hmacAuth(secretProvider: () => string) {
       const rawBody = hasBody
         ? ( (req as any).rawBody ? String((req as any).rawBody) : JSON.stringify(req.body ?? "") )
         : "";
-      const payload = `${req.method}\n${req.path}\n${ts}\n${rawBody}`;
-      const expected = crypto.createHmac("sha256", secretProvider()).update(payload).digest("base64");
+      const path = (req as any).originalUrl || req.path;
+      const payload = `${req.method}\n${path}\n${ts}\n${rawBody}` + (nonce ? `\n${nonce}` : "");
 
-      if (!timingSafeEqual(signature, expected)) {
-        return res.status(401).json({ error: { code: "AUTH_FAILED", message: "signature mismatch" } });
+      const currentSecret = secretProvider(keyId);
+      const expected = crypto.createHmac("sha256", currentSecret).update(payload).digest("base64");
+
+      let ok = timingSafeEqual(signature, expected);
+      const prev = process.env.ADDON_SHARED_SECRET_PREV;
+      if (!ok && prev) {
+        const expectedPrev = crypto.createHmac("sha256", prev).update(payload).digest("base64");
+        ok = timingSafeEqual(signature, expectedPrev);
       }
+
+      if (!ok) return res.status(401).json({ error: { code: "AUTH_FAILED", message: "signature mismatch" } });
 
       next();
     } catch (e) {

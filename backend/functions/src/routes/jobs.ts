@@ -4,6 +4,9 @@ import admin from "firebase-admin";
 import { PubSub } from "@google-cloud/pubsub";
 import { Storage } from "@google-cloud/storage";
 import { config } from "../config.js";
+import { JobsCreateResponseSchema, JobsStatusResponseSchema } from "../schemas.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { ApiError } from "../errors.js";
 
 const createSchema = z.object({
   uploadId: z.string().min(1),
@@ -34,7 +37,7 @@ export function jobsRouter() {
   const pubsub = new PubSub();
   const storage = new Storage();
 
-  r.post("/", async (req, res) => {
+  r.post("/", asyncHandler(async (req, res) => {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: { code: "BAD_REQUEST", message: parsed.error.message } });
@@ -56,15 +59,28 @@ export function jobsRouter() {
       attempts: 0,
     };
 
-    await db.collection("jobs").doc(jobId).set(jobDoc);
+    try {
+      await db.collection("jobs").doc(jobId).set(jobDoc);
+    } catch (e: any) {
+      throw new ApiError(500, "FIRESTORE_WRITE", e?.message || "failed to write job");
+    }
 
     const topicName = process.env.JOBS_TOPIC || "jobs-queue";
-    await pubsub.topic(topicName).publishMessage({ json: { jobId, uploadId, gcsPath, options: options || {} } });
+    try {
+      const topic = pubsub.topic(topicName);
+      await topic.get({ autoCreate: true });
+      await topic.publishMessage({ json: { jobId, uploadId, gcsPath, options: options || {} } });
+    } catch (e: any) {
+      throw new ApiError(500, "PUBSUB_PUBLISH", e?.message || "failed to publish job");
+    }
 
-    return res.json({ jobId });
-  });
+    const payload = { jobId };
+    const out = JobsCreateResponseSchema.safeParse(payload);
+    if (!out.success) return res.status(500).json({ error: { code: "INTERNAL", message: "response validation failed" } });
+    return res.json(out.data);
+  }));
 
-  r.get("/:jobId", async (req, res) => {
+  r.get("/:jobId", asyncHandler(async (req, res) => {
     const { jobId } = req.params;
     if (!jobId) return res.status(400).json({ error: { code: "BAD_REQUEST", message: "jobId required" } });
 
@@ -91,8 +107,10 @@ export function jobsRouter() {
       response.result = { resultJsonUrl: signed };
     }
 
-    return res.json(response);
-  });
+    const out = JobsStatusResponseSchema.safeParse(response);
+    if (!out.success) return res.status(500).json({ error: { code: "INTERNAL", message: "response validation failed" } });
+    return res.json(out.data);
+  }));
 
   return r;
 }

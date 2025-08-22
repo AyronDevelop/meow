@@ -15,13 +15,14 @@ export const JobCreateResponseSchema = z.object({
 export type JobCreateResponseZ = z.infer<typeof JobCreateResponseSchema>;
 
 export const JobStatusSchema = z.object({
-  status: z.enum(['pending', 'running', 'done', 'error', 'cancelled']),
+  status: z.enum(['pending', 'running', 'queued', 'processing', 'done', 'error', 'cancelled']),
   result: z
     .object({
       resultJsonUrl: z.string().url(),
     })
     .optional(),
   error: z.unknown().optional(),
+  metrics: z.unknown().optional(),
 });
 
 export type JobStatusZ = z.infer<typeof JobStatusSchema>;

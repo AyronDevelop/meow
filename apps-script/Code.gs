@@ -1,7 +1,7 @@
 function onOpen (e)
 {
     SlidesApp.getUi()
-        .createAddonMenu()
+        .createMenu('PDF to Slides')
         .addItem('Open sidebar', 'showSidebar')
         .addToUi();
 }
@@ -9,11 +9,6 @@ function onOpen (e)
 function onInstall (e)
 {
     onOpen(e);
-}
-
-function onHomepage (e)
-{
-    showSidebar();
 }
 
 function showSidebar ()

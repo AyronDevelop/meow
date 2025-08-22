@@ -20,6 +20,7 @@ export interface JobStatusResponse {
     readonly resultJsonUrl: string;
   };
   readonly error?: unknown;
+  readonly metrics?: unknown;
 }
 
 export interface ApplyResult {
@@ -28,7 +29,7 @@ export interface ApplyResult {
   readonly events?: readonly string[];
 }
 
-export type JobStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'queued' | 'processing' | 'done' | 'error' | 'cancelled';
 
 export type ProcessingPhase = 
   | 'idle' 

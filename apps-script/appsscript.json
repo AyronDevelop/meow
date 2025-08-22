@@ -13,12 +13,6 @@
       "name": "PDF to Slides",
       "logoUrl": "https://www.gstatic.com/images/branding/product/2x/slides_2020q4_48dp.png",
       "layoutProperties": { "primaryColor": "#0B57D0" }
-    },
-    "slides": {
-      "homepageTrigger": {
-        "runFunction": "onHomepage",
-        "enabled": true
-      }
     }
   }
 }

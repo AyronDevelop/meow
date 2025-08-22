@@ -22,8 +22,12 @@ export const FileCard: React.FC<FileCardProps> = ({
   return (
     <div className="filecard fade-in" role="group" aria-label={`Selected file: ${fileInfo.name}`}>
       <div className="fileicon" aria-hidden="true" />
-      <div style={{ flex: 1 }}>
-        <div className="filename" title={fileInfo.name}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div 
+          className="filename" 
+          title={fileInfo.name}
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
           {fileInfo.name}
         </div>
         <div className="filesize">

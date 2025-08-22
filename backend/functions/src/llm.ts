@@ -87,13 +87,19 @@ export class LlmClient {
     language?: string;
     theme?: "DEFAULT" | "LIGHT" | "DARK";
   }): Promise<SlidesResult> {
+    const totalTextChars = (params.pages || []).reduce((sum, p) => sum + (p.text ? p.text.length : 0), 0);
+    const lowText = totalTextChars < 500;
+
     const system = [
-      "You convert PDF text into a slide deck JSON strictly matching the provided JSON Schema.",
+      "You convert PDF content into a slide deck JSON that must strictly match the provided JSON Schema.",
+      "You will receive: (1) a JSON payload describing extracted text and constraints, and (2) a sequence of page images.",
       "Rules:",
-      "- Output JSON only.",
-      "- Use ONLY URLs from allowedImageUrls. External URLs are forbidden.",
-      "- Include at least minImages images in the deck. If you judge none appropriate, then use page 1 as BACKGROUND on the title slide; optionally page 2 as RIGHT on the next slide.",
+      "- Output JSON only (no prose).",
+      "- Use ONLY URLs from allowedImageUrls for images in the result. External URLs are forbidden.",
+      "- If the text is sparse or OCR seems needed, rely on the provided page images (visual reasoning) to infer slide content.",
+      "- Include at least minImages images. If uncertain, use page 1 as BACKGROUND on the title slide; optionally page 2 as RIGHT on the next slide.",
     ].join(" ");
+
     const inputPayload = {
       constraints: {
         maxSlides: params.maxSlides ?? 30,
@@ -102,7 +108,7 @@ export class LlmClient {
       },
       document: { pages: params.pages, images: params.images },
       allowedImageUrls: params.images.map((i) => i.url),
-      minImages: 1,
+      minImages: lowText ? 3 : 1,
       imagePlacementGuidance: {
         titleBackgroundFromPage1: true,
         secondaryRightFromPage2: true
@@ -112,6 +118,10 @@ export class LlmClient {
         "Include relevant page images",
         "No extraneous text",
       ],
+      hints: {
+        lowText,
+        preferVisualUnderstanding: lowText,
+      },
     };
 
     const jsonSchema = this.getJsonSchemaObject();
@@ -124,13 +134,23 @@ export class LlmClient {
         images: params.images.length,
         allowedImageUrls: inputPayload.allowedImageUrls.length,
         minImages: inputPayload.minImages,
+        lowText,
       });
+      const userContent: any[] = [
+        { type: "text", text: JSON.stringify(inputPayload) },
+      ];
+      if ((params.images || []).length > 0) {
+        userContent.push({ type: "text", text: `Below are ${params.images.length} page images in reading order:` });
+        for (const img of params.images) {
+          userContent.push({ type: "image_url", image_url: { url: img.url } });
+        }
+      }
       const completion = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_schema", json_schema: { name: "SlidesResult", schema: jsonSchema, strict: true } as any },
         messages: [
           { role: "system", content: system },
-          { role: "user", content: JSON.stringify(inputPayload) },
+          { role: "user", content: userContent as any },
         ],
         temperature: 0.1,
         max_tokens: 6000,
@@ -155,12 +175,21 @@ export class LlmClient {
       previous: content,
       allowedImageUrls: inputPayload.allowedImageUrls,
     };
+    const userRepairContent: any[] = [
+      { type: "text", text: JSON.stringify(repairPrompt) },
+    ];
+    if ((params.images || []).length > 0) {
+      userRepairContent.push({ type: "text", text: `Reference page images again (${params.images.length}):` });
+      for (const img of params.images) {
+        userRepairContent.push({ type: "image_url", image_url: { url: img.url } });
+      }
+    }
     const completion2 = await this.client.chat.completions.create({
       model: "gpt-4o-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify(repairPrompt) },
+        { role: "user", content: userRepairContent as any },
       ],
       temperature: 0.0,
       max_tokens: 6000,

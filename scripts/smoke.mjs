@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 const BASE_URL = process.env.BASE_URL || (process.env.PROJECT_ID ? `https://us-central1-${process.env.PROJECT_ID}.cloudfunctions.net/api` : "");
 const ADDON_SECRET = process.env.ADDON_SECRET || "";
@@ -19,6 +20,11 @@ function sign (method, path, body)
 
 function makePdfBuffer ()
 {
+    const fromPath = process.env.PDF_PATH;
+    if (fromPath)
+    {
+        return fs.readFileSync(fromPath);
+    }
     const content = `%PDF-1.1\n%\xE2\xE3\xCF\xD3\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 24 Tf 72 120 Td (Hello) Tj ET\nendstream endobj\nxref\n0 5\n0000000000 65535 f \n0000000010 00000 n \n0000000062 00000 n \n0000000117 00000 n \n0000000216 00000 n \ntrailer<</Size 5/Root 1 0 R>>\nstartxref\n300\n%%EOF\n`;
     return Buffer.from(content, "utf8");
 }

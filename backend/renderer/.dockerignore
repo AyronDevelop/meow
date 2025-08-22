@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+.DS_Store
+src/**/*.test.ts
+src/**/*.spec.ts
+*.md
+.git
+.gitignore
+tsconfig.tsbuildinfo
+

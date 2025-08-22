@@ -4,6 +4,7 @@ import { Storage } from "@google-cloud/storage";
 import { LlmClient } from "./llm.js";
 import { parseGcsUri } from "./util.js";
 import { renderPdfPages } from "./rendererClient.js";
+import { config } from "./config.js";
 
 function ensureAdmin() {
   try {
@@ -58,7 +59,7 @@ export const jobsWorker = functions
           // Generate signed URLs for returned gcsObject paths
           for (const pg of r.pages.slice(0, 12)) {
             const [signed] = await storage
-              .bucket(process.env.GCS_BUCKET_JOBS || "")
+              .bucket(config.buckets.jobs)
               .file(pg.gcsObject)
               .getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 2 * 60 * 60 * 1000 });
             images.push({ page: pg.index, url: signed });
@@ -71,7 +72,7 @@ export const jobsWorker = functions
       const openaiDisabled = String(process.env.OPENAI_DISABLED || "false").toLowerCase() === "true";
       let slides: any;
       if (openaiDisabled) {
-        // Stub result: превращаем первые 5 секций текста в 5 слайдов
+        // Stub result: convert first 5 sections of text into 5 slides
         const take = pages.slice(0, 5);
         slides = {
           title: "Generated Deck (stub)",
@@ -88,8 +89,8 @@ export const jobsWorker = functions
       }
 
       const resultPath = `jobs/${data.jobId}/result.json`;
-      const jobsBucket = process.env.GCS_BUCKET_JOBS || "";
-      if (!jobsBucket) throw new Error("GCS_BUCKET_JOBS not configured");
+      const jobsBucket = config.buckets.jobs;
+      if (!jobsBucket) throw new Error("jobs bucket not configured");
       await storage.bucket(jobsBucket).file(resultPath).save(Buffer.from(JSON.stringify(slides)), { contentType: "application/json" });
 
       await jobRef.set({ status: "done", updatedAt: Date.now() }, { merge: true });

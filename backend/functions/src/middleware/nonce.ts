@@ -30,7 +30,7 @@ export function antiReplayNonce(ttlSeconds = 300, enabled = true) {
 			await ref.set({ createdAt: Date.now(), expiresAt: Date.now() + ttlSeconds * 1000 });
 			next();
 		} catch {
-			// fail-open на транзиентных ошибках
+			// fail-open on transient errors
 			next();
 		}
 	};

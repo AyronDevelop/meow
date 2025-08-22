@@ -20,7 +20,10 @@ vi.mock("@google-cloud/pubsub", () => {
   return {
     PubSub: class {
       topic() {
-        return { publishMessage: async () => {} };
+        return { 
+          get: async () => [{}],
+          publishMessage: async () => {}
+        };
       }
     },
   };
@@ -60,6 +63,7 @@ describe("jobs endpoints", () => {
       PDF_MAX_PAGES: "150",
       ANTI_REPLAY_ENABLED: "false",
     };
+    vi.resetModules(); // чтобы app/config перечитали env
   });
   afterEach(() => {
     process.env = prevEnv;
@@ -67,6 +71,7 @@ describe("jobs endpoints", () => {
   });
 
   it("creates a job and returns jobId", async () => {
+    const { createApp } = await import("../lib/app.js");
     const app = createApp();
     const bodyObj = { uploadId: "upl_123", pdfName: "a.pdf", options: { theme: "DEFAULT" } };
     const body = JSON.stringify(bodyObj);

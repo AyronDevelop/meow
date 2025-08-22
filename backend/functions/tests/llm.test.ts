@@ -8,7 +8,7 @@ vi.mock("openai", () => {
           create: async () => ({
             choices: [
               {
-                message: { content: JSON.stringify({ title: "Deck", theme: "DEFAULT", slides: [{ title: "S1" }] }) },
+                message: { content: JSON.stringify({ title: "Deck", theme: "DEFAULT", slides: [{ title: "S1", images: [{ url: "https://example.com/i.png", placement: "RIGHT" }] }] }) },
               },
             ],
           }),
@@ -25,6 +25,8 @@ describe("LlmClient", () => {
     const res = await client.generateSlides({ pages: [{ index: 1, text: "Hello" }], images: [] });
     expect(res.title).toBe("Deck");
     expect(res.slides[0].title).toBe("S1");
+    expect(res.theme).toBe("DEFAULT");
+    expect(res.slides[0].images?.[0].placement).toBe("RIGHT");
   });
 });
 

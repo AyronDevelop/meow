@@ -3,18 +3,17 @@ import { z } from "zod";
 
 const SlidesResultSchema = z.object({
   title: z.string().min(1),
-  theme: z.enum(["DEFAULT", "LIGHT", "DARK"]),
+  theme: z.literal("DEFAULT"),
   slides: z.array(
     z.object({
       title: z.string().min(1),
       bullets: z.array(z.string()).optional(),
       notes: z.string().optional(),
-      layout: z.enum(["TITLE_ONLY", "TITLE_AND_BODY", "TITLE_AND_TWO_COLUMNS"]).optional(),
       images: z
         .array(
           z.object({
             url: z.string().url(),
-            placement: z.enum(["LEFT", "RIGHT", "FULL_WIDTH", "BACKGROUND"]).optional(),
+            placement: z.literal("RIGHT").optional(),
             widthPx: z.number().int().nonnegative().optional(),
           })
         )
@@ -46,7 +45,7 @@ export class LlmClient {
       required: ["title", "theme", "slides"],
       properties: {
         title: { type: "string", minLength: 1 },
-        theme: { type: "string", enum: ["DEFAULT", "LIGHT", "DARK"] },
+        theme: { type: "string", enum: ["DEFAULT"] },
         slides: {
           type: "array",
           minItems: 1,
@@ -59,7 +58,6 @@ export class LlmClient {
               title: { type: "string", minLength: 1 },
               bullets: { type: "array", items: { type: "string" } },
               notes: { type: "string" },
-              layout: { type: "string", enum: ["TITLE_ONLY", "TITLE_AND_BODY", "TITLE_AND_TWO_COLUMNS"] },
               images: {
                 type: "array",
                 items: {
@@ -68,7 +66,7 @@ export class LlmClient {
                   required: ["url"],
                   properties: {
                     url: { type: "string", format: "uri" },
-                    placement: { type: "string", enum: ["LEFT", "RIGHT", "FULL_WIDTH", "BACKGROUND"] },
+                    placement: { type: "string", enum: ["RIGHT"] },
                     widthPx: { type: "integer", minimum: 0 },
                   },
                 },
@@ -96,26 +94,26 @@ export class LlmClient {
       "Rules:",
       "- Output JSON only (no prose).",
       "- Use ONLY URLs from allowedImageUrls for images in the result. External URLs are forbidden.",
-      "- If the text is sparse or OCR seems needed, rely on the provided page images (visual reasoning) to infer slide content.",
-      "- Include at least minImages images. If uncertain, use page 1 as BACKGROUND on the title slide; optionally page 2 as RIGHT on the next slide.",
+      "- Theme is fixed to DEFAULT. Do not propose other themes.",
+      "- Use a single slide style only: text on the left, a single image on the RIGHT.",
+      "- Do NOT use other placements like LEFT, FULL_WIDTH or BACKGROUND.",
     ].join(" ");
 
     const inputPayload = {
       constraints: {
         maxSlides: params.maxSlides ?? 30,
         language: params.language ?? "auto",
-        theme: params.theme ?? "DEFAULT",
+        theme: "DEFAULT",
       },
       document: { pages: params.pages, images: params.images },
       allowedImageUrls: params.images.map((i) => i.url),
-      minImages: lowText ? 3 : 1,
+      minImages: 1,
       imagePlacementGuidance: {
-        titleBackgroundFromPage1: true,
-        secondaryRightFromPage2: true
+        rightImagePreferred: true
       },
       guidelines: [
         "Short headings, concise bullets",
-        "Include relevant page images",
+        "Include exactly one relevant page image on the RIGHT per slide",
         "No extraneous text",
       ],
       hints: {

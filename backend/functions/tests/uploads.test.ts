@@ -1,5 +1,4 @@
 import request from "supertest";
-import { createApp } from "../lib/app.js";
 import crypto from "crypto";
 
 vi.mock("@google-cloud/storage", () => {
@@ -27,12 +26,14 @@ describe("POST /v1/uploads/signed-url", () => {
   const prevEnv = process.env;
   beforeEach(() => {
     process.env = { ...prevEnv, ADDON_SHARED_SECRET: secret, GCS_BUCKET_UPLOADS: "bucket", SIGNED_URL_TTL_SECONDS: "3600", PDF_MAX_BYTES: "31457280", PDF_MAX_PAGES: "150", ANTI_REPLAY_ENABLED: "false" };
+    vi.resetModules(); // важное: пересоздать модули, чтобы config перечитал env
   });
   afterEach(() => {
     process.env = prevEnv;
   });
 
   it("returns signed url for valid request", async () => {
+    const { createApp } = await import("../lib/app.js");
     const app = createApp();
     const bodyObj = { fileName: "a.pdf", contentType: "application/pdf", contentLength: 1000, contentSha256: "a".repeat(64) };
     const body = JSON.stringify(bodyObj);
@@ -49,6 +50,7 @@ describe("POST /v1/uploads/signed-url", () => {
   });
 
   it("rejects oversize file", async () => {
+    const { createApp } = await import("../lib/app.js");
     const app = createApp();
     const bodyObj = { fileName: "a.pdf", contentType: "application/pdf", contentLength: 999999999, contentSha256: "a".repeat(64) };
     const body = JSON.stringify(bodyObj);

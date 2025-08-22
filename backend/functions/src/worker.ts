@@ -45,28 +45,45 @@ export const jobsWorker = functions
         text = ""; // fallback ниже
       }
 
-      const pages = (text && text.trim().length > 0 ? text : "Uploaded PDF")
-        .split(/\n\s*\n/g)
-        .slice(0, 50)
-        .map((t: string, i: number) => ({ index: i + 1, text: t.slice(0, 5000) }));
+      let pages: Array<{ index: number; text: string }> = [];
 
       // Call Cloud Run renderer to get page PNGs (if configured)
       const rendererUrl = process.env.RENDERER_URL || (functions.config()?.renderer?.url as string | undefined);
       const images: Array<{ page: number; url: string }> = [];
       try {
         if (rendererUrl) {
-          const r = await renderPdfPages(rendererUrl, { gcsPath: data.gcsPath, dpi: 180, maxPages: 150, jobId: data.jobId });
-          // Generate signed URLs for returned gcsObject paths
-          for (const pg of r.pages.slice(0, 12)) {
+          const r = await renderPdfPages(rendererUrl, { gcsPath: data.gcsPath, dpi: 180, maxPages: config.limits.maxPages, jobId: data.jobId });
+          // Build pages strictly per rendered page order
+          pages = r.pages
+            .slice(0, config.limits.maxPages)
+            .map((pg, i) => ({ index: pg.index, text: "" }));
+          // Generate signed URLs for returned gcsObject paths (one per page)
+          for (const pg of r.pages.slice(0, config.limits.maxPages)) {
+            const expires = Date.now() + 2 * 60 * 60 * 1000;
+            let bucketName = config.buckets.jobs;
+            let objectName = pg.gcsObject;
+            if (pg.gcsObject.startsWith("gs://")) {
+              const { bucket, object } = parseGcsUri(pg.gcsObject);
+              bucketName = bucket;
+              objectName = object;
+            }
             const [signed] = await storage
-              .bucket(config.buckets.jobs)
-              .file(pg.gcsObject)
-              .getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 2 * 60 * 60 * 1000 });
+              .bucket(bucketName)
+              .file(objectName)
+              .getSignedUrl({ version: "v4", action: "read", expires });
             images.push({ page: pg.index, url: signed });
           }
         }
       } catch (e) {
         // renderer is optional; continue without images
+      }
+
+      // Fallback: if no renderer pages, derive a minimal pages array from text (kept for robustness)
+      if (pages.length === 0) {
+        pages = (text && text.trim().length > 0 ? text : "Uploaded PDF")
+          .split(/\n\s*\n/g)
+          .slice(0, 50)
+          .map((t: string, i: number) => ({ index: i + 1, text: t.slice(0, 5000) }));
       }
 
       const openaiDisabled = String(process.env.OPENAI_DISABLED || "false").toLowerCase() === "true";
@@ -86,6 +103,28 @@ export const jobsWorker = functions
       } else {
         const llm = new LlmClient(process.env.OPENAI_API_KEY as string);
         slides = await llm.generateSlides({ pages, images, maxSlides: data.options?.maxSlides, language: data.options?.language, theme: data.options?.theme });
+      }
+
+      // Enforce slide count and attach images deterministically per page order
+      try {
+        const desiredByImages = images.length > 0 ? images.length : Infinity;
+        const desiredByPages = pages.length;
+        const desiredMax = Math.min(desiredByImages, desiredByPages);
+        const userMax = typeof data.options?.maxSlides === "number" && data.options.maxSlides > 0 ? data.options.maxSlides : undefined;
+        const targetSlides = Math.max(1, Math.min(userMax ?? desiredMax, desiredMax));
+        const sortedImages = images.slice().sort((a, b) => a.page - b.page);
+        slides = {
+          title: slides?.title || "Generated Deck",
+          theme: "DEFAULT",
+          slides: (slides?.slides || []).slice(0, targetSlides).map((s: any, i: number) => ({
+            title: s?.title || `Slide ${i + 1}`,
+            bullets: Array.isArray(s?.bullets) ? s.bullets : undefined,
+            notes: typeof s?.notes === "string" ? s.notes : undefined,
+            images: sortedImages[i] ? [{ url: sortedImages[i].url, placement: "RIGHT" as const }] : [],
+          })),
+        };
+      } catch {
+        // best-effort; if anything goes wrong, keep original slides
       }
 
       const resultPath = `jobs/${data.jobId}/result.json`;

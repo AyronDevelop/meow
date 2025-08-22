@@ -8,6 +8,23 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+function stableStringify(input: unknown): string {
+  if (input == null) return "";
+  if (typeof input !== "object") return String(input);
+  const seen = new WeakSet();
+  const normalize = (value: any): any => {
+    if (value === null || typeof value !== "object") return value;
+    if (seen.has(value)) return undefined;
+    seen.add(value);
+    if (Array.isArray(value)) return value.map(normalize);
+    const keys = Object.keys(value).sort();
+    const out: Record<string, any> = {};
+    for (const k of keys) out[k] = normalize((value as any)[k]);
+    return out;
+  };
+  return JSON.stringify(normalize(input));
+}
+
 export function hmacAuth(secretProvider: (keyId?: string) => string) {
   return function (req: Request, res: Response, next: NextFunction) {
     try {
@@ -24,7 +41,7 @@ export function hmacAuth(secretProvider: (keyId?: string) => string) {
       const method = req.method.toUpperCase();
       const hasBody = method !== "GET" && method !== "HEAD";
       const rawBody = hasBody
-        ? ( (req as any).rawBody ? String((req as any).rawBody) : JSON.stringify(req.body ?? "") )
+        ? ((req as any).rawBody ? String((req as any).rawBody) : (process.env.HMAC_STABLE_STRINGIFY === "true" ? stableStringify(req.body) : JSON.stringify(req.body ?? "")))
         : "";
       const path = (req as any).originalUrl || req.path;
       const payload = `${req.method}\n${path}\n${ts}\n${rawBody}` + (nonce ? `\n${nonce}` : "");

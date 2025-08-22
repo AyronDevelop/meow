@@ -26,7 +26,7 @@ describe("LlmClient", () => {
     expect(res.title).toBe("Deck");
     expect(res.slides[0].title).toBe("S1");
     expect(res.theme).toBe("DEFAULT");
-    expect(res.slides[0].images?.[0].placement).toBe("RIGHT");
+    expect(res.slides[0].images?.length).toBe(0);
   });
 });
 

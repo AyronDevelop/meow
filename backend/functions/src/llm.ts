@@ -93,32 +93,33 @@ export class LlmClient {
       "You will receive: (1) a JSON payload describing extracted text and constraints, and (2) a sequence of page images.",
       "Rules:",
       "- Output JSON only (no prose).",
-      "- Use ONLY URLs from allowedImageUrls for images in the result. External URLs are forbidden.",
       "- Theme is fixed to DEFAULT. Do not propose other themes.",
-      "- Use a single slide style only: text on the left, a single image on the RIGHT.",
-      "- Do NOT use other placements like LEFT, FULL_WIDTH or BACKGROUND.",
+      "- Generate EXACTLY one slide per page, preserving the original page order.",
+      "- Do NOT include any images in the output JSON; backend will attach images.",
+      "- For each slide, produce 3-6 concise, information-dense bullet points and add 2-4 sentence 'notes'.",
     ].join(" ");
 
     const imagesCount = Array.isArray(params.images) ? params.images.length : 0;
     const pagesCount = Array.isArray(params.pages) ? params.pages.length : 0;
-    const hardMaxSlides = Math.max(1, imagesCount, pagesCount);
+    const targetSlides = Math.max(1, imagesCount > 0 ? imagesCount : pagesCount);
 
     const inputPayload = {
       constraints: {
-        maxSlides: Math.min(params.maxSlides ?? hardMaxSlides, hardMaxSlides),
+        maxSlides: targetSlides,
         language: params.language ?? "auto",
         theme: "DEFAULT",
       },
       document: { pages: params.pages, images: params.images },
       allowedImageUrls: params.images.map((i) => i.url),
-      minImages: imagesCount > 0 ? 1 : 0,
+      minImages: 0,
       imagePlacementGuidance: {
         rightImagePreferred: true
       },
       guidelines: [
-        "Short headings, concise bullets",
-        "Include exactly one relevant page image on the RIGHT per slide",
-        "No extraneous text",
+        "Short headings",
+        "3-6 concise but detailed bullets per slide",
+        "Always include 'notes' with 2-4 sentences of key insights",
+        "No extraneous or filler text",
       ],
       hints: {
         lowText,
@@ -142,10 +143,12 @@ export class LlmClient {
         { type: "text", text: JSON.stringify(inputPayload) },
       ];
       if ((params.images || []).length > 0) {
-        userContent.push({ type: "text", text: `Below are ${params.images.length} page images in reading order:` });
+        userContent.push({ type: "text", text: `There are ${params.images.length} pages. Generate EXACTLY one slide per page in the same order.` });
         for (const img of params.images) {
           userContent.push({ type: "image_url", image_url: { url: img.url } });
         }
+      } else {
+        userContent.push({ type: "text", text: `There are ${params.pages.length} pages. Generate EXACTLY one slide per page in the same order.` });
       }
       const completion = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
@@ -161,23 +164,25 @@ export class LlmClient {
       this.dbg("attempt1.raw", String(content).slice(0, 1000));
       const parsed1 = SlidesResultSchema.safeParse(JSON.parse(content));
       if (parsed1.success) {
-        // Enforce hard constraints post-generation + whitelist
-        const allowed = new Set(inputPayload.allowedImageUrls);
+        // Force text-only output and exact slide count: 1 slide per page
+        const desired = targetSlides;
+        const generated = (parsed1.data.slides || []).slice(0, desired);
+        const normalized = Array.from({ length: desired }, (_v, i) => {
+          const s = generated[i];
+          return {
+            title: s?.title || `Page ${i + 1}`,
+            bullets: Array.isArray(s?.bullets) ? s!.bullets : undefined,
+            notes: typeof s?.notes === "string" ? s!.notes : undefined,
+            images: [],
+          };
+        });
         const trimmed = {
-          ...parsed1.data,
+          title: parsed1.data.title || "Generated Deck",
           theme: "DEFAULT" as const,
-          slides: (parsed1.data.slides || [])
-            .slice(0, hardMaxSlides)
-            .map((s) => ({
-              ...s,
-              images: (s.images || [])
-                .filter((im) => allowed.size === 0 || allowed.has(im.url))
-                .slice(0, 1)
-                .map((im) => ({ ...im, placement: "RIGHT" as const })),
-            })),
+          slides: normalized,
         } satisfies SlidesResult;
-        const urls = trimmed.slides.flatMap((s) => s.images || []).map((im) => im.url);
-        this.dbg("attempt1.parsed", { slides: trimmed.slides.length, images: urls.length });
+        const imageUrls: string[] = [];
+        this.dbg("attempt1.parsed", { slides: trimmed.slides.length, images: imageUrls.length });
         return trimmed;
       }
     } catch (err) {
@@ -197,10 +202,12 @@ export class LlmClient {
       { type: "text", text: JSON.stringify(repairPrompt) },
     ];
     if ((params.images || []).length > 0) {
-      userRepairContent.push({ type: "text", text: `Reference page images again (${params.images.length}):` });
+      userRepairContent.push({ type: "text", text: `There are ${params.images.length} pages. Generate EXACTLY one slide per page in the same order.` });
       for (const img of params.images) {
         userRepairContent.push({ type: "image_url", image_url: { url: img.url } });
       }
+    } else {
+      userRepairContent.push({ type: "text", text: `There are ${params.pages.length} pages. Generate EXACTLY one slide per page in the same order.` });
     }
     const completion2 = await this.client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -216,22 +223,24 @@ export class LlmClient {
     this.dbg("attempt2.raw", String(content2).slice(0, 1000));
     const parsed2 = SlidesResultSchema.safeParse(JSON.parse(content2));
     if (parsed2.success) {
-      const allowed = new Set(inputPayload.allowedImageUrls);
+      const desired = targetSlides;
+      const generated = (parsed2.data.slides || []).slice(0, desired);
+      const normalized = Array.from({ length: desired }, (_v, i) => {
+        const s = generated[i];
+        return {
+          title: s?.title || `Page ${i + 1}`,
+          bullets: Array.isArray(s?.bullets) ? s!.bullets : undefined,
+          notes: typeof s?.notes === "string" ? s!.notes : undefined,
+          images: [],
+        };
+      });
       const trimmed = {
-        ...parsed2.data,
+        title: parsed2.data.title || "Generated Deck",
         theme: "DEFAULT" as const,
-        slides: (parsed2.data.slides || [])
-          .slice(0, hardMaxSlides)
-          .map((s) => ({
-            ...s,
-            images: (s.images || [])
-              .filter((im) => allowed.size === 0 || allowed.has(im.url))
-              .slice(0, 1)
-              .map((im) => ({ ...im, placement: "RIGHT" as const })),
-          })),
+        slides: normalized,
       } satisfies SlidesResult;
-      const all = trimmed.slides.flatMap((s) => s.images || []).map((im) => im.url);
-      this.dbg("attempt2.parsed", { slides: trimmed.slides.length, images: all.length });
+      const imageUrls2: string[] = [];
+      this.dbg("attempt2.parsed", { slides: trimmed.slides.length, images: imageUrls2.length });
       return trimmed;
     }
 

@@ -96,15 +96,19 @@ export function jobsRouter() {
 
     if (data.status === "done") {
       const objectPath = `jobs/${jobId}/result.json`;
-      const [signed] = await storage
-        .bucket(config.buckets.jobs)
-        .file(objectPath)
-        .getSignedUrl({
-          version: "v4",
-          action: "read",
-          expires: Date.now() + config.limits.signedUrlTtlSeconds * 1000,
-        });
-      response.result = { resultJsonUrl: signed };
+      try {
+        const [signed] = await storage
+          .bucket(config.buckets.jobs)
+          .file(objectPath)
+          .getSignedUrl({
+            version: "v4",
+            action: "read",
+            expires: Date.now() + config.limits.signedUrlTtlSeconds * 1000,
+          });
+        response.result = { resultJsonUrl: signed };
+      } catch (e: any) {
+        throw new ApiError(500, "GCS_SIGN", e?.message || "failed to sign result url");
+      }
     }
 
     const out = JobsStatusResponseSchema.safeParse(response);

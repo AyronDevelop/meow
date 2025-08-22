@@ -99,15 +99,19 @@ export class LlmClient {
       "- Do NOT use other placements like LEFT, FULL_WIDTH or BACKGROUND.",
     ].join(" ");
 
+    const imagesCount = Array.isArray(params.images) ? params.images.length : 0;
+    const pagesCount = Array.isArray(params.pages) ? params.pages.length : 0;
+    const hardMaxSlides = Math.max(1, imagesCount, pagesCount);
+
     const inputPayload = {
       constraints: {
-        maxSlides: params.maxSlides ?? 30,
+        maxSlides: Math.min(params.maxSlides ?? hardMaxSlides, hardMaxSlides),
         language: params.language ?? "auto",
         theme: "DEFAULT",
       },
       document: { pages: params.pages, images: params.images },
       allowedImageUrls: params.images.map((i) => i.url),
-      minImages: 1,
+      minImages: imagesCount > 0 ? 1 : 0,
       imagePlacementGuidance: {
         rightImagePreferred: true
       },
@@ -157,11 +161,27 @@ export class LlmClient {
       this.dbg("attempt1.raw", String(content).slice(0, 1000));
       const parsed1 = SlidesResultSchema.safeParse(JSON.parse(content));
       if (parsed1.success) {
-        const urls = (parsed1.data.slides || []).flatMap((s) => s.images || []).map((im) => im.url);
-        this.dbg("attempt1.parsed", { slides: parsed1.data.slides.length, images: urls.length });
-        return parsed1.data;
+        // Enforce hard constraints post-generation + whitelist
+        const allowed = new Set(inputPayload.allowedImageUrls);
+        const trimmed = {
+          ...parsed1.data,
+          theme: "DEFAULT" as const,
+          slides: (parsed1.data.slides || [])
+            .slice(0, hardMaxSlides)
+            .map((s) => ({
+              ...s,
+              images: (s.images || [])
+                .filter((im) => allowed.size === 0 || allowed.has(im.url))
+                .slice(0, 1)
+                .map((im) => ({ ...im, placement: "RIGHT" as const })),
+            })),
+        } satisfies SlidesResult;
+        const urls = trimmed.slides.flatMap((s) => s.images || []).map((im) => im.url);
+        this.dbg("attempt1.parsed", { slides: trimmed.slides.length, images: urls.length });
+        return trimmed;
       }
-    } catch {
+    } catch (err) {
+      this.dbg("attempt1.error", String(err instanceof Error ? err.message : err));
       // fallthrough to repair
     }
 
@@ -196,9 +216,23 @@ export class LlmClient {
     this.dbg("attempt2.raw", String(content2).slice(0, 1000));
     const parsed2 = SlidesResultSchema.safeParse(JSON.parse(content2));
     if (parsed2.success) {
-      const all = (parsed2.data.slides || []).flatMap((s) => s.images || []).map((im) => im.url);
-      this.dbg("attempt2.parsed", { slides: parsed2.data.slides.length, images: all.length });
-      return parsed2.data;
+      const allowed = new Set(inputPayload.allowedImageUrls);
+      const trimmed = {
+        ...parsed2.data,
+        theme: "DEFAULT" as const,
+        slides: (parsed2.data.slides || [])
+          .slice(0, hardMaxSlides)
+          .map((s) => ({
+            ...s,
+            images: (s.images || [])
+              .filter((im) => allowed.size === 0 || allowed.has(im.url))
+              .slice(0, 1)
+              .map((im) => ({ ...im, placement: "RIGHT" as const })),
+          })),
+      } satisfies SlidesResult;
+      const all = trimmed.slides.flatMap((s) => s.images || []).map((im) => im.url);
+      this.dbg("attempt2.parsed", { slides: trimmed.slides.length, images: all.length });
+      return trimmed;
     }
 
     throw new Error("LLM response did not match schema after repair");

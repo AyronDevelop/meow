@@ -4,6 +4,13 @@ export const SignedUrlResponseSchema = z.object({
   uploadId: z.string().min(1),
   uploadUrl: z.string().url(),
   headers: z.record(z.string()).optional(),
+  expiresAt: z.string().datetime().optional(),
+  limits: z
+    .object({
+      maxBytes: z.number().int().positive(),
+      maxPages: z.number().int().positive(),
+    })
+    .optional(),
 });
 
 export type SignedUrlResponseZ = z.infer<typeof SignedUrlResponseSchema>;
@@ -15,7 +22,7 @@ export const JobCreateResponseSchema = z.object({
 export type JobCreateResponseZ = z.infer<typeof JobCreateResponseSchema>;
 
 export const JobStatusSchema = z.object({
-  status: z.enum(['pending', 'running', 'queued', 'processing', 'done', 'error', 'cancelled']),
+  status: z.enum(['queued', 'processing', 'done', 'error', 'cancelled']),
   result: z
     .object({
       resultJsonUrl: z.string().url(),

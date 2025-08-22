@@ -8,6 +8,8 @@ export interface SignedUrlResponse {
   readonly uploadId: string;
   readonly uploadUrl: string;
   readonly headers?: Readonly<Record<string, string>>;
+  readonly expiresAt?: string;
+  readonly limits?: Readonly<{ maxBytes: number; maxPages: number }>;
 }
 
 export interface JobCreateResponse {
@@ -29,7 +31,7 @@ export interface ApplyResult {
   readonly events?: readonly string[];
 }
 
-export type JobStatus = 'pending' | 'running' | 'queued' | 'processing' | 'done' | 'error' | 'cancelled';
+export type JobStatus = 'queued' | 'processing' | 'done' | 'error' | 'cancelled';
 
 export type ProcessingPhase = 
   | 'idle' 

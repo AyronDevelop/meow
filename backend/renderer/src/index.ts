@@ -26,27 +26,26 @@ app.post("/render", async (req, res) => {
   const parsed = reqSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
   const { gcsPath, dpi = 180, maxPages = 150, jobId } = parsed.data;
+  let tempDir: string | null = null;
   try {
     const { bucket, object } = parseGcs(gcsPath);
+    tempDir = await fs.promises.mkdtemp(`/tmp/render-${jobId ?? "anon"}-`);
 
-    // Write PDF to tmp
-    const inputPath = `/tmp/input.pdf`;
+    const inputPath = `${tempDir}/input.pdf`;
     await storage.bucket(bucket).file(object).download({ destination: inputPath });
 
-    // Render pages via pdftocairo (PNG)
-    const outPrefix = `/tmp/page`;
+    const outPrefix = `${tempDir}/page`;
     await new Promise<void>((resolve, reject) => {
       const p = spawn("pdftocairo", ["-png", `-r`, String(dpi), inputPath, outPrefix]);
       p.on("error", reject);
       p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pdftocairo exit ${code}`))));
     });
 
-    // Upload pages back to GCS jobs bucket under jobs/{jobId}/pages/{n}.png
     const targetBucketName = process.env.GCS_BUCKET_JOBS || bucket;
     const targetBucket = storage.bucket(targetBucketName);
     const pages = [] as Array<{ index: number; gcsObject: string }>;
     for (let i = 1; i <= maxPages; i++) {
-      const local = `/tmp/page-${i}.png`;
+      const local = `${tempDir}/page-${i}.png`;
       if (!fs.existsSync(local)) break;
       const destObject = jobId ? `jobs/${jobId}/pages/${i}.png` : `jobs/unknown/pages/${i}.png`;
       await targetBucket.upload(local, { destination: destObject, contentType: "image/png" });
@@ -55,6 +54,12 @@ app.post("/render", async (req, res) => {
     return res.json({ pages });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "render failed" });
+  } finally {
+    if (tempDir) {
+      try {
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
 });
 
